@@ -21,7 +21,7 @@
             align-items: center; justify-content: space-between; height: 90vh;
         }
         #status { font-size: 1.2em; color: #666; height: 60px; display: flex; align-items: center; justify-content: center; }
-        
+
         #speakButton {
             width: 160px; height: 160px; border-radius: 50%; border: none; background-color: var(--primary-color);
             color: white; font-size: 1.5em; font-weight: bold; cursor: pointer; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
@@ -29,7 +29,7 @@
         }
         #speakButton:hover, #speakButton:focus { background-color: #0056b3; outline: none; }
         #speakButton.listening { background-color: var(--danger-color); transform: scale(1.05); }
-        
+
         .button-group {
             display: flex;
             flex-direction: column;
@@ -56,7 +56,7 @@
         #fallbackForm input {
             width: 80%; padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 5px; font-size: 1em;
         }
-        
+
         #result { margin-top: 20px; font-size: 1.1em; min-height: 50px; }
         .footer { font-size: 0.8em; color: #aaa; margin-top: auto;}
     </style>
@@ -64,9 +64,9 @@
 <body>
     <div class="container">
         <div id="status">Tap the button to start speaking</div>
-        
+
         <button id="speakButton">Tap to Speak</button>
-        
+
         <div class="button-group">
             <button id="importBtn" class="btn">📲 Import Contacts</button>
             <button id="manualBtn" class="btn">✏️ Add Contact Manually</button>
@@ -84,7 +84,7 @@
             <p id="heardText"></p>
             <p id="responseText"></p>
         </div>
-        
+
         <div class="footer">Senior Voice Assistant Prototype</div>
     </div>
 
@@ -94,24 +94,30 @@
         const manualBtn = document.getElementById('manualBtn');
         const fallbackForm = document.getElementById('fallbackForm');
         const saveManualBtn = document.getElementById('saveManualBtn');
-        
+
         const statusDiv = document.getElementById('status');
         const heardTextP = document.getElementById('heardText');
         const responseTextP = document.getElementById('responseText');
-        
-        // App Memory: Store contacts here (starts with one dummy test contact)
-        let myContacts = {
-            "test": "123-456-7890"
+
+        // --- 1. PERMANENT CONTACT STORAGE ---
+        // Load contacts from the phone's local storage, or create a default object.
+        let myContacts = JSON.parse(localStorage.getItem('senior_contacts')) || {
+            "test": "1234567890" // Default contact for first-time use
         };
 
-        // --- 1. Contact Picker API Logic (Automatic) ---
+        // Helper function to save the current contact list to the phone's disk.
+        function saveContactsToDisk() {
+            localStorage.setItem('senior_contacts', JSON.stringify(myContacts));
+        }
+
+        // --- 2. Contact Picker API Logic (for Safari on iOS) ---
         importBtn.addEventListener('click', async () => {
             if ('contacts' in navigator && 'ContactsManager' in window) {
                 try {
                     const props = ['name', 'tel'];
                     const opts = { multiple: true };
                     const contacts = await navigator.contacts.select(props, opts);
-                    
+
                     if (contacts.length > 0) {
                         let count = 0;
                         contacts.forEach(contact => {
@@ -121,23 +127,21 @@
                                 count++;
                             }
                         });
+                        saveContactsToDisk(); // Save the newly imported contacts permanently
                         speak(`Successfully imported ${count} contacts.`);
                         statusDiv.textContent = `${count} contacts ready to call.`;
                     }
                 } catch (ex) {
-                    console.error("Contact import failed", ex);
                     statusDiv.textContent = "Contact import cancelled.";
                 }
             } else {
-                // If API is unsupported, automatically reveal the manual form and alert the user
-                speak("Contact picker is not supported on this browser. Please use the manual input form.");
+                speak("Contact picker not supported. Please use the manual form.");
                 fallbackForm.style.display = 'block';
             }
         });
 
-        // --- 2. Manual Backup Form Logic ---
+        // --- 3. Manual Backup Form Logic ---
         manualBtn.addEventListener('click', () => {
-            // Toggle form visibility
             fallbackForm.style.display = fallbackForm.style.display === 'block' ? 'none' : 'block';
         });
 
@@ -147,10 +151,10 @@
 
             if (nameInput && phoneInput) {
                 myContacts[nameInput] = phoneInput;
+                saveContactsToDisk(); // Save the manually added contact permanently
                 speak(`Contact saved for ${nameInput}.`);
                 statusDiv.textContent = `Saved ${nameInput}! Try saying: Call ${nameInput}`;
-                
-                // Reset inputs and hide form
+
                 document.getElementById('manualName').value = '';
                 document.getElementById('manualPhone').value = '';
                 fallbackForm.style.display = 'none';
@@ -159,7 +163,7 @@
             }
         });
 
-        // --- 3. Speech Recognition Setup ---
+        // --- 4. Speech Recognition & Synthesis Setup ---
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const recognition = SpeechRecognition ? new SpeechRecognition() : null;
         const synth = window.speechSynthesis;
@@ -174,49 +178,11 @@
             recognition.interimResults = false;
             recognition.maxAlternatives = 1;
 
-            recognition.onstart = () => {
-                isListening = true;
-                speakButton.classList.add('listening');
-                speakButton.textContent = 'Stop';
-                statusDiv.textContent = 'I am listening...';
-                heardTextP.textContent = '';
-                responseTextP.textContent = '';
-            };
-
-            recognition.onend = () => {
-                isListening = false;
-                speakButton.classList.remove('listening');
-                speakButton.textContent = 'Tap to Speak';
-                if (statusDiv.textContent === 'I am listening...') {
-                    statusDiv.textContent = 'Tap the button to start speaking';
-                }
-            };
-
-            recognition.onerror = (event) => {
-                let errorMsg = `Error: ${event.error}. Please try again.`;
-                if(event.error === 'not-allowed') errorMsg = 'Please allow microphone access in Safari settings and use HTTPS.';
-                statusDiv.textContent = errorMsg;
-                isListening = false;
-                speakButton.classList.remove('listening');
-                speakButton.textContent = 'Tap to Speak';
-            };
-
-            recognition.onresult = (event) => {
-                const transcript = event.results[0][0].transcript.trim();
-                heardTextP.innerHTML = `<strong>I heard:</strong> "${transcript}"`;
-                statusDiv.textContent = 'Thinking...';
-                processCommand(transcript);
-            };
-
-            speakButton.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (synth && synth.paused) synth.resume();
-                if (!isListening) {
-                    recognition.start();
-                } else {
-                    recognition.stop();
-                }
-            });
+            recognition.onstart = () => { isListening = true; speakButton.classList.add('listening'); speakButton.textContent = 'Stop'; statusDiv.textContent = 'I am listening...'; };
+            recognition.onend = () => { isListening = false; speakButton.classList.remove('listening'); speakButton.textContent = 'Tap to Speak'; if (statusDiv.textContent === 'I am listening...') { statusDiv.textContent = 'Tap the button to start speaking'; } };
+            recognition.onerror = (event) => { let e = `Error: ${event.error}.`; if(event.error === 'not-allowed') e = 'Microphone not allowed. Use HTTPS & enable in settings.'; statusDiv.textContent = e; isListening = false; speakButton.classList.remove('listening'); speakButton.textContent = 'Tap to Speak'; };
+            recognition.onresult = (event) => { const transcript = event.results[0][0].transcript.trim(); heardTextP.innerHTML = `<strong>I heard:</strong> "${transcript}"`; statusDiv.textContent = 'Thinking...'; processCommand(transcript); };
+            speakButton.addEventListener('click', (e) => { e.preventDefault(); if (synth && synth.paused) synth.resume(); if (!isListening) { recognition.start(); } else { recognition.stop(); } });
         }
 
         function speak(text) {
@@ -228,55 +194,37 @@
             synth.speak(utterance);
         }
 
-        // --- 4. Intent Processing ---
+        // --- 5. Intent Processing Logic ---
         function processCommand(command) {
             const lowerCommand = command.toLowerCase();
 
-            // Emergency
             if (lowerCommand.includes('help') || lowerCommand.includes('emergency') || lowerCommand.includes('911')) {
                 speak("Emergency detected. Dialing 911 now.");
                 setTimeout(() => { window.location.href = "tel:911"; }, 3000);
-                return;
-            }
-
-            // Calling 
-            if (lowerCommand.startsWith('call') || lowerCommand.includes('phone')) {
+            } else if (lowerCommand.startsWith('call') || lowerCommand.includes('phone')) {
                 const searchName = lowerCommand.replace('call', '').replace('phone', '').replace('my', '').trim();
-                
                 if (searchName) {
-                    let foundNumber = null;
-                    let foundName = null;
-                    
-                    // Fuzzy match checking
+                    let foundNumber = null, foundName = null;
                     for (const [contactName, phoneNum] of Object.entries(myContacts)) {
                         if (contactName.includes(searchName) || searchName.includes(contactName)) {
-                            foundNumber = phoneNum;
-                            foundName = contactName;
-                            break;
+                            foundNumber = phoneNum; foundName = contactName; break;
                         }
                     }
-
                     if (foundNumber) {
                         speak(`Calling ${foundName} now.`);
                         setTimeout(() => { window.location.href = `tel:${foundNumber}`; }, 2500);
                     } else {
-                        speak(`I couldn't find a phone number for ${searchName}. Please use the "Add Contact" button to save it first.`);
+                        speak(`I couldn't find ${searchName}. Please add their contact first.`);
                     }
                 } else {
                     speak("Who would you like to call?");
                 }
-                return;
+            } else if (lowerCommand.includes('uber') || lowerCommand.includes('lyft') || lowerCommand.includes('ride')) {
+                const dest = lowerCommand.replace(/.*?(uber|lyft|ride to|take me to)\s*/, '').trim();
+                speak(dest ? `Booking a ride to ${dest}. Confirm in the app.` : "Where would you like to go?");
+            } else {
+                speak("I'm sorry, I didn't understand. Try saying 'Call test' or 'Help'.");
             }
-
-            // Uber/Ride
-            if (lowerCommand.includes('uber') || lowerCommand.includes('lyft') || lowerCommand.includes('ride')) {
-                const destination = lowerCommand.replace(/.*?(uber|lyft|ride to|take me to)\s*/, '').trim();
-                speak(destination ? `Booking a ride to ${destination}. Please confirm in the app.` : "Where would you like to go?");
-                return;
-            }
-
-            // Default
-            speak("I'm sorry, I didn't understand. Try saying 'Call test' or 'Help'.");
         }
     </script>
 </body>
