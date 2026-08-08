@@ -30,9 +30,31 @@
         #speakButton:hover, #speakButton:focus { background-color: #0056b3; outline: none; }
         #speakButton.listening { background-color: var(--danger-color); transform: scale(1.05); }
         
-        #importBtn {
-            margin-top: 30px; padding: 12px 24px; border-radius: 25px; border: none; background-color: var(--secondary-color);
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 20px;
+            width: 100%;
+        }
+
+        .btn {
+            padding: 12px 24px; border-radius: 25px; border: none; background-color: var(--secondary-color);
             color: white; font-size: 1em; font-weight: bold; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        /* Simple Fallback Input Form */
+        #fallbackForm {
+            display: none;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 15px;
+            margin-top: 15px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+            width: 90%;
+        }
+        #fallbackForm input {
+            width: 80%; padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 5px; font-size: 1em;
         }
         
         #result { margin-top: 20px; font-size: 1.1em; min-height: 50px; }
@@ -45,7 +67,18 @@
         
         <button id="speakButton">Tap to Speak</button>
         
-        <button id="importBtn">📲 Import Contacts</button>
+        <div class="button-group">
+            <button id="importBtn" class="btn">📲 Import Contacts</button>
+            <button id="manualBtn" class="btn">✏️ Add Contact Manually</button>
+        </div>
+
+        <!-- Manual Backup Form (shown if API is unsupported or clicked) -->
+        <div id="fallbackForm">
+            <h3>Add Contact</h3>
+            <input type="text" id="manualName" placeholder="Name (e.g. Daughter)"><br>
+            <input type="tel" id="manualPhone" placeholder="Phone (e.g. 1234567890)"><br>
+            <button id="saveManualBtn" class="btn" style="background-color: var(--primary-color); margin-top: 10px;">Save Contact</button>
+        </div>
 
         <div id="result">
             <p id="heardText"></p>
@@ -58,16 +91,21 @@
     <script>
         const speakButton = document.getElementById('speakButton');
         const importBtn = document.getElementById('importBtn');
+        const manualBtn = document.getElementById('manualBtn');
+        const fallbackForm = document.getElementById('fallbackForm');
+        const saveManualBtn = document.getElementById('saveManualBtn');
+        
         const statusDiv = document.getElementById('status');
         const heardTextP = document.getElementById('heardText');
         const responseTextP = document.getElementById('responseText');
         
-        // App Memory: Store imported contacts here
-        let myContacts = {};
+        // App Memory: Store contacts here (starts with one dummy test contact)
+        let myContacts = {
+            "test": "123-456-7890"
+        };
 
-        // 1. --- Contact Picker Logic ---
+        // --- 1. Contact Picker API Logic (Automatic) ---
         importBtn.addEventListener('click', async () => {
-            // Check if browser supports the Contact Picker API
             if ('contacts' in navigator && 'ContactsManager' in window) {
                 try {
                     const props = ['name', 'tel'];
@@ -78,7 +116,6 @@
                         let count = 0;
                         contacts.forEach(contact => {
                             if (contact.name && contact.name.length > 0 && contact.tel && contact.tel.length > 0) {
-                                // Save lowercase name for easier voice matching
                                 const name = contact.name[0].toLowerCase();
                                 myContacts[name] = contact.tel[0];
                                 count++;
@@ -86,18 +123,43 @@
                         });
                         speak(`Successfully imported ${count} contacts.`);
                         statusDiv.textContent = `${count} contacts ready to call.`;
-                        console.log("Current Contacts:", myContacts);
                     }
                 } catch (ex) {
                     console.error("Contact import failed", ex);
                     statusDiv.textContent = "Contact import cancelled.";
                 }
             } else {
-                alert("Your browser does not support the Web Contact Picker API. Please ensure you are using a mobile device and accessing this page via HTTPS.");
+                // If API is unsupported, automatically reveal the manual form and alert the user
+                speak("Contact picker is not supported on this browser. Please use the manual input form.");
+                fallbackForm.style.display = 'block';
             }
         });
 
-        // 2. --- Speech Recognition Setup ---
+        // --- 2. Manual Backup Form Logic ---
+        manualBtn.addEventListener('click', () => {
+            // Toggle form visibility
+            fallbackForm.style.display = fallbackForm.style.display === 'block' ? 'none' : 'block';
+        });
+
+        saveManualBtn.addEventListener('click', () => {
+            const nameInput = document.getElementById('manualName').value.trim().toLowerCase();
+            const phoneInput = document.getElementById('manualPhone').value.trim();
+
+            if (nameInput && phoneInput) {
+                myContacts[nameInput] = phoneInput;
+                speak(`Contact saved for ${nameInput}.`);
+                statusDiv.textContent = `Saved ${nameInput}! Try saying: Call ${nameInput}`;
+                
+                // Reset inputs and hide form
+                document.getElementById('manualName').value = '';
+                document.getElementById('manualPhone').value = '';
+                fallbackForm.style.display = 'none';
+            } else {
+                alert("Please fill in both name and phone number.");
+            }
+        });
+
+        // --- 3. Speech Recognition Setup ---
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const recognition = SpeechRecognition ? new SpeechRecognition() : null;
         const synth = window.speechSynthesis;
@@ -132,7 +194,7 @@
 
             recognition.onerror = (event) => {
                 let errorMsg = `Error: ${event.error}. Please try again.`;
-                if(event.error === 'not-allowed') errorMsg = 'Please allow microphone access in settings and use HTTPS.';
+                if(event.error === 'not-allowed') errorMsg = 'Please allow microphone access in Safari settings and use HTTPS.';
                 statusDiv.textContent = errorMsg;
                 isListening = false;
                 speakButton.classList.remove('listening');
@@ -166,7 +228,7 @@
             synth.speak(utterance);
         }
 
-        // 3. --- Intent Processing ---
+        // --- 4. Intent Processing ---
         function processCommand(command) {
             const lowerCommand = command.toLowerCase();
 
@@ -185,7 +247,7 @@
                     let foundNumber = null;
                     let foundName = null;
                     
-                    // Fuzzy match: check if spoken name is inside any of our saved contacts
+                    // Fuzzy match checking
                     for (const [contactName, phoneNum] of Object.entries(myContacts)) {
                         if (contactName.includes(searchName) || searchName.includes(contactName)) {
                             foundNumber = phoneNum;
@@ -198,7 +260,7 @@
                         speak(`Calling ${foundName} now.`);
                         setTimeout(() => { window.location.href = `tel:${foundNumber}`; }, 2500);
                     } else {
-                        speak(`I couldn't find a phone number for ${searchName}. Did you import their contact?`);
+                        speak(`I couldn't find a phone number for ${searchName}. Please use the "Add Contact" button to save it first.`);
                     }
                 } else {
                     speak("Who would you like to call?");
@@ -214,7 +276,7 @@
             }
 
             // Default
-            speak("I'm sorry, I didn't understand. Try saying 'Call John' or 'Help'.");
+            speak("I'm sorry, I didn't understand. Try saying 'Call test' or 'Help'.");
         }
     </script>
 </body>
