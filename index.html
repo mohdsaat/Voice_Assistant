@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Senior Voice Assistant</title>
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #f0f8ff;
+            --text-color: #333;
+            --bg-color: #ffffff;
+            --danger-color: #dc3545;
+        }
+        body, html {
+            height: 100%; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color); color: var(--text-color); display: flex; justify-content: center; align-items: center; text-align: center;
+        }
+        .container {
+            padding: 20px; width: 90%; max-width: 400px; display: flex; flex-direction: column;
+            align-items: center; justify-content: space-between; height: 80vh;
+        }
+        #status { font-size: 1.2em; color: #666; height: 60px; display: flex; align-items: center; justify-content: center; }
+        #speakButton {
+            width: 150px; height: 150px; border-radius: 50%; border: none; background-color: var(--primary-color);
+            color: white; font-size: 1.5em; font-weight: bold; cursor: pointer; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+            transition: background-color 0.3s, transform 0.2s; display: flex; justify-content: center; align-items: center; text-align: center;
+        }
+        #speakButton:hover, #speakButton:focus { background-color: #0056b3; outline: none; }
+        #speakButton.listening { background-color: var(--danger-color); transform: scale(1.1); }
+        #result { margin-top: 20px; font-size: 1.1em; min-height: 50px; }
+        .footer { font-size: 0.8em; color: #aaa; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="status">Press the button and speak</div>
+        <button id="speakButton">Hold to Speak</button>
+        <div id="result">
+            <p id="heardText"></p>
+            <p id="responseText"></p>
+        </div>
+        <div class="footer">Senior Voice Assistant Prototype</div>
+    </div>
+    <script>
+        const speakButton = document.getElementById('speakButton');
+        const statusDiv = document.getElementById('status');
+        const heardTextP = document.getElementById('heardText');
+        const responseTextP = document.getElementById('responseText');
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = SpeechRecognition ? new SpeechRecognition() : null;
+        const synth = window.speechSynthesis;
+        let isListening = false;
+
+        function main() {
+            if (!recognition) {
+                statusDiv.textContent = "Sorry, your browser does not support Speech Recognition.";
+                speakButton.disabled = true;
+                return;
+            }
+            recognition.continuous = false;
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+            recognition.onstart = () => {
+                isListening = true;
+                speakButton.classList.add('listening');
+                speakButton.textContent = 'Listening...';
+                statusDiv.textContent = 'I am listening...';
+                heardTextP.textContent = '';
+                responseTextP.textContent = '';
+            };
+            recognition.onend = () => {
+                isListening = false;
+                speakButton.classList.remove('listening');
+                speakButton.textContent = 'Hold to Speak';
+                if (statusDiv.textContent === 'I am listening...') {
+                    statusDiv.textContent = 'Press the button and speak';
+                }
+            };
+            recognition.onerror = (event) => {
+                console.error("Speech recognition error", event.error);
+                let errorMsg = `Error: ${event.error}. Please try again.`;
+                if(event.error === 'not-allowed') errorMsg = 'Please allow microphone access.';
+                statusDiv.textContent = errorMsg;
+            };
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript.trim();
+                heardTextP.innerHTML = `<strong>I heard:</strong> "${transcript}"`;
+                statusDiv.textContent = 'Thinking...';
+                processCommand(transcript);
+            };
+            const startRecognition = () => { if (!isListening) recognition.start(); };
+            const stopRecognition = () => { if (isListening) recognition.stop(); };
+            speakButton.addEventListener('mousedown', startRecognition);
+            speakButton.addEventListener('mouseup', stopRecognition);
+            speakButton.addEventListener('touchstart', (e) => { e.preventDefault(); startRecognition(); });
+            speakButton.addEventListener('touchend', (e) => { e.preventDefault(); stopRecognition(); });
+        }
+
+        function speak(text) {
+            if (synth.speaking) { console.error('SpeechSynthesis is busy.'); return; }
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.onend = () => { statusDiv.textContent = 'Press the button and speak'; };
+            utterance.onerror = (e) => { console.error('SpeechSynthesis error.', e); };
+            responseTextP.innerHTML = `<strong>My reply:</strong> ${text}`;
+            synth.speak(utterance);
+        }
+
+        function processCommand(command) {
+            const lowerCommand = command.toLowerCase();
+            if (lowerCommand.includes('help') || lowerCommand.includes('emergency') || lowerCommand.includes('911')) {
+                speak("Emergency detected. Calling 911 now. This is a simulation.");
+                document.body.style.backgroundColor = 'var(--danger-color)';
+                setTimeout(() => { document.body.style.backgroundColor = 'var(--bg-color)'; }, 4000);
+            } else if (lowerCommand.startsWith('call') || lowerCommand.includes('phone')) {
+                const name = lowerCommand.replace('call', '').replace('phone', '').trim();
+                speak(name ? `Simulating call to ${name}.` : "Who would you like to call?");
+            } else if (lowerCommand.includes('uber') || lowerCommand.includes('lyft') || lowerCommand.includes('ride') || lowerCommand.includes('take me to')) {
+                const destination = lowerCommand.replace(/.*?(uber|lyft|ride|take me to)s*/, '').trim();
+                speak(destination ? `Okay, booking a ride to ${destination}. Please confirm in the app.` : "Where would you like to go?");
+            } else if (lowerCommand.includes('order') || lowerCommand.includes('eat')) {
+                speak("Okay, what would you like to order?");
+            } else {
+                speak("I'm sorry, I didn't understand. You can say 'call someone' or 'get a ride'.");
+            }
+        }
+        main();
+    </script>
+</body>
+</html>
