@@ -22,20 +22,20 @@
         }
         #status { font-size: 1.2em; color: #666; height: 60px; display: flex; align-items: center; justify-content: center; }
         #speakButton {
-            width: 150px; height: 150px; border-radius: 50%; border: none; background-color: var(--primary-color);
-            color: white; font-size: 1.5em; font-weight: bold; cursor: pointer; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+            width: 160px; height: 160px; border-radius: 50%; border: none; background-color: var(--primary-color);
+            color: white; font-size: 1.5em; font-weight: bold; cursor: pointer; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
             transition: background-color 0.3s, transform 0.2s; display: flex; justify-content: center; align-items: center; text-align: center;
         }
         #speakButton:hover, #speakButton:focus { background-color: #0056b3; outline: none; }
-        #speakButton.listening { background-color: var(--danger-color); transform: scale(1.1); }
+        #speakButton.listening { background-color: var(--danger-color); transform: scale(1.05); }
         #result { margin-top: 20px; font-size: 1.1em; min-height: 50px; }
         .footer { font-size: 0.8em; color: #aaa; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div id="status">Press the button and speak</div>
-        <button id="speakButton">Hold to Speak</button>
+        <div id="status">Tap the button to start speaking</div>
+        <button id="speakButton">Tap to Speak</button>
         <div id="result">
             <p id="heardText"></p>
             <p id="responseText"></p>
@@ -47,6 +47,8 @@
         const statusDiv = document.getElementById('status');
         const heardTextP = document.getElementById('heardText');
         const responseTextP = document.getElementById('responseText');
+        
+        // iOS Safari explicit fallback check
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const recognition = SpeechRecognition ? new SpeechRecognition() : null;
         const synth = window.speechSynthesis;
@@ -58,50 +60,76 @@
                 speakButton.disabled = true;
                 return;
             }
+            
             recognition.continuous = false;
             recognition.lang = 'en-US';
             recognition.interimResults = false;
             recognition.maxAlternatives = 1;
+
             recognition.onstart = () => {
                 isListening = true;
                 speakButton.classList.add('listening');
-                speakButton.textContent = 'Listening...';
+                speakButton.textContent = 'Stop';
                 statusDiv.textContent = 'I am listening...';
                 heardTextP.textContent = '';
                 responseTextP.textContent = '';
             };
+
             recognition.onend = () => {
                 isListening = false;
                 speakButton.classList.remove('listening');
-                speakButton.textContent = 'Hold to Speak';
+                speakButton.textContent = 'Tap to Speak';
                 if (statusDiv.textContent === 'I am listening...') {
-                    statusDiv.textContent = 'Press the button and speak';
+                    statusDiv.textContent = 'Tap the button to start speaking';
                 }
             };
+
             recognition.onerror = (event) => {
                 console.error("Speech recognition error", event.error);
                 let errorMsg = `Error: ${event.error}. Please try again.`;
-                if(event.error === 'not-allowed') errorMsg = 'Please allow microphone access.';
+                if(event.error === 'not-allowed') {
+                    errorMsg = 'Please allow microphone access in settings and use HTTPS.';
+                }
                 statusDiv.textContent = errorMsg;
+                isListening = false;
+                speakButton.classList.remove('listening');
+                speakButton.textContent = 'Tap to Speak';
             };
+
             recognition.onresult = (event) => {
                 const transcript = event.results[0][0].transcript.trim();
                 heardTextP.innerHTML = `<strong>I heard:</strong> "${transcript}"`;
                 statusDiv.textContent = 'Thinking...';
                 processCommand(transcript);
             };
-            const startRecognition = () => { if (!isListening) recognition.start(); };
-            const stopRecognition = () => { if (isListening) recognition.stop(); };
-            speakButton.addEventListener('mousedown', startRecognition);
-            speakButton.addEventListener('mouseup', stopRecognition);
-            speakButton.addEventListener('touchstart', (e) => { e.preventDefault(); startRecognition(); });
-            speakButton.addEventListener('touchend', (e) => { e.preventDefault(); stopRecognition(); });
+
+            // iOS-COMPATIBLE TAP GESTURE
+            speakButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                // We must resume AudioContext or speech engines on native tap for iOS compatibility
+                if (synth && synth.paused) {
+                    synth.resume();
+                }
+                
+                if (!isListening) {
+                    try {
+                        recognition.start();
+                    } catch (err) {
+                        console.error("Failed to start", err);
+                    }
+                } else {
+                    recognition.stop();
+                }
+            });
         }
 
         function speak(text) {
-            if (synth.speaking) { console.error('SpeechSynthesis is busy.'); return; }
+            if (!synth) return;
+            if (synth.speaking) {
+                synth.cancel(); // Cancel current speech to prevent queuing overlap
+            }
             const utterance = new SpeechSynthesisUtterance(text);
-            utterance.onend = () => { statusDiv.textContent = 'Press the button and speak'; };
+            utterance.onend = () => { statusDiv.textContent = 'Tap the button to start speaking'; };
             utterance.onerror = (e) => { console.error('SpeechSynthesis error.', e); };
             responseTextP.innerHTML = `<strong>My reply:</strong> ${text}`;
             synth.speak(utterance);
@@ -117,7 +145,7 @@
                 const name = lowerCommand.replace('call', '').replace('phone', '').trim();
                 speak(name ? `Simulating call to ${name}.` : "Who would you like to call?");
             } else if (lowerCommand.includes('uber') || lowerCommand.includes('lyft') || lowerCommand.includes('ride') || lowerCommand.includes('take me to')) {
-                const destination = lowerCommand.replace(/.*?(uber|lyft|ride|take me to)s*/, '').trim();
+                const destination = lowerCommand.replace(/.*?(uber|lyft|ride|take me to)\s*/, '').trim();
                 speak(destination ? `Okay, booking a ride to ${destination}. Please confirm in the app.` : "Where would you like to go?");
             } else if (lowerCommand.includes('order') || lowerCommand.includes('eat')) {
                 speak("Okay, what would you like to order?");
